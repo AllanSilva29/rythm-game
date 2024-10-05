@@ -1,0 +1,285 @@
+<html>
+  <head>
+    <title>Rhythm Fusion: Record and Play Mode</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <style>
+      @keyframes pulse {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.1);
+        }
+      }
+      .arrow {
+        transition: all 0.1s ease;
+        width: 60px;
+        height: 60px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      .arrow.active {
+        transform: scale(1.2);
+        filter: brightness(1.5);
+      }
+      .arrow.hit {
+        animation: pulse 0.3s ease-in-out;
+      }
+      .falling-arrow {
+        position: absolute;
+        width: 60px;
+        height: 60px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      #arrow-container {
+        display: flex;
+        justify-content: center;
+        align-items: flex-end;
+        height: 80px;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-900 text-white font-sans">
+    <div class="container mx-auto px-4 py-8">
+      <h1 class="text-4xl font-bold text-center mb-8">
+        Rhythm Fusion: Record and Play
+      </h1>
+
+      <div
+        id="game-container"
+        class="relative w-full h-96 bg-gray-800 rounded-lg overflow-hidden"
+      >
+        <div id="score" class="absolute top-4 left-4 text-2xl font-bold">
+          Score: 0
+        </div>
+        <div id="combo" class="absolute top-4 right-4 text-2xl font-bold">
+          Combo: 0
+        </div>
+
+        <div
+          id="arrow-container"
+          class="absolute bottom-0 left-0 right-0 flex justify-center space-x-4 p-4"
+        >
+          <div class="arrow bg-blue-900 rounded-lg" data-key="ArrowLeft">
+            <i class="fas fa-arrow-left text-4xl text-blue-500"></i>
+          </div>
+          <div class="arrow bg-green-900 rounded-lg" data-key="ArrowDown">
+            <i class="fas fa-arrow-down text-4xl text-green-500"></i>
+          </div>
+          <div class="arrow bg-red-900 rounded-lg" data-key="ArrowUp">
+            <i class="fas fa-arrow-up text-4xl text-red-500"></i>
+          </div>
+          <div class="arrow bg-yellow-900 rounded-lg" data-key="ArrowRight">
+            <i class="fas fa-arrow-right text-4xl text-yellow-500"></i>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-8 text-center space-x-4">
+        <button
+          id="record-btn"
+          class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded"
+        >
+          Start Recording
+        </button>
+        <button
+          id="play-btn"
+          class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+          disabled
+        >
+          Play Recording
+        </button>
+      </div>
+    </div>
+
+    <script>
+      $(document).ready(function () {
+        let score = 0;
+        let combo = 0;
+        let isRecording = false;
+        let isPlaying = false;
+        const arrowKeys = ["ArrowLeft", "ArrowDown", "ArrowUp", "ArrowRight"];
+        const arrowColors = {
+          ArrowLeft: "blue",
+          ArrowDown: "green",
+          ArrowUp: "red",
+          ArrowRight: "yellow",
+        };
+
+        const GAME_CONTAINER_HEIGHT = $("#game-container").height();
+        const PRESS_ZONE_HEIGHT = 100; // Define the height of the press zone
+        let recordedNotes = [];
+        let recordStartTime;
+
+        function createFallingArrow(key, fromBottom = false) {
+          const $targetArrow = $(`[data-key="${key}"]`);
+          const $arrow = $("<div>")
+            .addClass("falling-arrow")
+            .attr("data-key", key)
+            .css({
+              left:
+                $targetArrow.offset().left - $("#game-container").offset().left,
+              [fromBottom ? "bottom" : "top"]: "-60px",
+            })
+            .append($targetArrow.html())
+            .appendTo("#game-container");
+
+          $arrow.animate(
+            {
+              [fromBottom ? "bottom" : "top"]: GAME_CONTAINER_HEIGHT,
+            },
+            {
+              duration: 3000,
+              easing: "linear",
+              progress: function (animation, progress) {
+                const arrowPosition = $arrow.position().top;
+                const pressZoneStart =
+                  GAME_CONTAINER_HEIGHT - PRESS_ZONE_HEIGHT;
+                const pressZoneEnd = GAME_CONTAINER_HEIGHT;
+
+                if (
+                  arrowPosition >= pressZoneStart &&
+                  arrowPosition <= pressZoneEnd
+                ) {
+                  $arrow.data("inPressZone", true);
+                } else {
+                  $arrow.data("inPressZone", false);
+                }
+              },
+              complete: function () {
+                $arrow.remove();
+              },
+            }
+          );
+        }
+
+        function updateScore() {
+          $("#score").text(`Score: ${score}`);
+        }
+
+        function updateCombo() {
+          $("#combo").text(`Combo: ${combo}`);
+        }
+
+        function checkHit(key) {
+          const $pressZoneArrows = $(".falling-arrow").filter(function () {
+            return (
+              $(this).data("inPressZone") && $(this).attr("data-key") === key
+            );
+          });
+
+          if ($pressZoneArrows.length > 0) {
+            const $arrow = $pressZoneArrows.first();
+            const arrowPosition = $arrow.position().top;
+            const perfectPosition = $("#arrow-container").position().top;
+            const distance = Math.abs(arrowPosition - perfectPosition);
+
+            let points;
+            if (distance <= 10) {
+              points = 100; // Perfect
+            } else if (distance <= 30) {
+              points = 75; // Great
+            } else {
+              points = 50; // Good
+            }
+
+            $arrow.addClass("hit");
+            setTimeout(() => $arrow.remove(), 100);
+            $(`[data-key="${key}"]`).addClass("hit");
+            setTimeout(() => $(`[data-key="${key}"]`).removeClass("hit"), 100);
+
+            score += points * (combo + 1);
+            combo++;
+            updateScore();
+            updateCombo();
+            return true;
+          }
+          return false;
+        }
+
+        $(document).on("keydown", function (e) {
+          if (arrowKeys.includes(e.key)) {
+            $(`[data-key="${e.key}"]`).addClass("active");
+            if (isRecording) {
+              const currentTime = Date.now() - recordStartTime;
+              recordedNotes.push({ key: e.key, time: currentTime });
+              createFallingArrow(e.key, true);
+            } else if (isPlaying) {
+              checkHit(e.key);
+            }
+          }
+        });
+
+        $(document).on("keyup", function (e) {
+          if (arrowKeys.includes(e.key)) {
+            $(`[data-key="${e.key}"]`).removeClass("active");
+          }
+        });
+
+        $("#record-btn").on("click", function () {
+          if (!isRecording) {
+            isRecording = true;
+            recordedNotes = [];
+            recordStartTime = Date.now();
+            $(this)
+              .text("Stop Recording")
+              .removeClass("bg-red-600 hover:bg-red-700")
+              .addClass("bg-yellow-600 hover:bg-yellow-700");
+            $("#play-btn").prop("disabled", true);
+            // Reset score and combo when starting a new recording
+            score = 0;
+            combo = 0;
+            updateScore();
+            updateCombo();
+          } else {
+            isRecording = false;
+            $(this)
+              .text("Start Recording")
+              .removeClass("bg-yellow-600 hover:bg-yellow-700")
+              .addClass("bg-red-600 hover:bg-red-700");
+            $("#play-btn").prop("disabled", false);
+          }
+        });
+
+        $("#play-btn").on("click", function () {
+          if (!isPlaying && recordedNotes.length > 0) {
+            isPlaying = true;
+            $(this).prop("disabled", true);
+            $("#record-btn").prop("disabled", true);
+
+            // Reset score and combo when starting playback
+            score = 0;
+            combo = 0;
+            updateScore();
+            updateCombo();
+
+            const playStartTime = Date.now();
+
+            recordedNotes.forEach((note) => {
+              setTimeout(() => {
+                createFallingArrow(note.key);
+              }, note.time);
+            });
+
+            setTimeout(() => {
+              isPlaying = false;
+              $(this).prop("disabled", false);
+              $("#record-btn").prop("disabled", false);
+            }, recordedNotes[recordedNotes.length - 1].time + 3000);
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
